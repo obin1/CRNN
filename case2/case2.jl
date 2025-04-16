@@ -1,5 +1,5 @@
-using OrdinaryDiffEq, Flux, Optim, Random, Plots
-using DiffEqSensitivity
+ using OrdinaryDiffEq, Flux, Optim, Random, Plots
+# using DiffEqSensitivity
 using Zygote
 using ForwardDiff
 using LinearAlgebra, Statistics
@@ -7,12 +7,14 @@ using ProgressBars, Printf
 using Flux.Optimise: update!, ExpDecay
 using Flux.Losses: mae, mse
 using BSON: @save, @load
+using SciMLSensitivity
+
 
 Random.seed!(1234);
 
 ###################################
 # Arguments
-is_restart = true;
+is_restart = false;
 n_epoch = 10000;
 n_plot = 50;
 datasize = 50;
@@ -118,12 +120,12 @@ function crnn(du, u, p, t)
 end
 
 u0 = u0_list[1, :];
-prob = ODEProblem(crnn, u0, tspan, saveat=tsteps, atol=atol, rtol=rtol)
+prob = ODEProblem(crnn, u0, tspan, saveat=tsteps, abstol=atol, reltol=rtol)
 
 sense = BacksolveAdjoint(checkpointing=true; autojacvec=ZygoteVJP());
 function predict_neuralode(u0, p)
     global w_in, w_b, w_out = p2vec(p)
-    pred = clamp.(Array(solve(prob, alg, u0=u0, p=p, sensalg=sense)), -ub, ub)
+    pred = clamp.(Array(solve(prob, alg, u0=u0, p=p, sensealg=sense)), -ub, ub)
     return pred
 end
 predict_neuralode(u0, p)
@@ -132,7 +134,8 @@ i_obs = [1, 2, 3, 4, 5, 6];
 function loss_neuralode(p, i_exp)
     ode_data = @view ode_data_list[i_exp, i_obs, :]
     pred = predict_neuralode(u0_list[i_exp, :], p)[i_obs, :]
-    loss = mae(ode_data ./ yscale[i_obs], pred ./ yscale[i_obs])
+    loss = mae(ode_data ./ yscale[i_obs], pred ./ yscale[i_obs]) 
+    # loss += (iter/n_epoch)*sum(sin.(pi*w_out).^2)
     return loss
 end
 
@@ -175,13 +178,13 @@ cb = function (p, loss_train, loss_val)
         plot!(xlabel="Epoch", ylabel="Loss")
         png(plt_loss, "figs/loss")
 
-        @save "./checkpoint/mymodel.bson" p opt l_loss_train l_loss_val iter;
+        # @save "/checkpoint/mymodel.bson" p opt l_loss_train l_loss_val iter;
     end
     iter += 1;
 end
 
 if is_restart
-    @load "./checkpoint/mymodel.bson" p opt l_loss_train l_loss_val iter;
+    @load "/checkpoint/mymodel.bson" p opt l_loss_train l_loss_val iter;
     iter += 1;
 end
 

@@ -10,33 +10,37 @@ using BSON: @save, @load
 using Suppressor
 Random.seed!(1234);
 
+# Note: run this in Julia environment v1.6.7 for case2 to converge
+
 ###################################
 # Arguments
 is_restart = false;
 n_epoch = 10000
 n_plot = 50;
 datasize = 20;
-tstep = 0.1;
+tstep = 1;
 n_exp_train = 40;
 n_exp_test = 10;
 n_exp = n_exp_train + n_exp_test;
-noise = 0 # 0.05;
+noise = 0#0.05;
 ns = 11;
 nr = 10;
-alg = Rosenbrock23(autodiff=false)
+alg = AutoTsit5(Rosenbrock23(autodiff=false));
 atol = 1e-6;
 rtol = 1e-3;
 
-# opt = ADAMW(5.f-3, (0.9, 0.999), 1.f-6);
-opt = Flux.Optimiser(ExpDecay(5e-3, 0.5, 500 * n_exp_train, 1e-4),
-                     ADAMW(0.005, (0.9, 0.999), 1.f-6));
+opt = ADAMW(5.f-3, (0.9, 0.999), 1.f-6);
+# opt = Flux.Optimiser(ExpDecay(5e-3, 0.5, 500 * n_exp_train, 1e-4),
+                    #  ADAMW(0.005, (0.9, 0.999), 1.f-6));
 
 lb = 1.f-6;
 ub = 1.f1;
 ####################################
 
 # Julia photochemical model 
-function trueODEfunc(dydt, y, k, t)
+
+
+function jpm(dydt, y, k, t)
 #=  1) NO2 + HV = NO + O
     2) O + O2 = O3
     3) O3 + NO = NO2 + O2
@@ -47,10 +51,11 @@ function trueODEfunc(dydt, y, k, t)
     8) HO. + NO2 = HNO3
     9) HO2H + HV = 2 HO.
    10) HO2H + HO. = HO2. + H2O =#
+   k = [0.5 22.179 26.937 0.015 0.022 13844.97 12652.43 15454.98 0.0003 2492.71]
    # set the rates according to all 10 reactions
     r = zeros(Float32, 10)
     r[1] = k[1]*y[3]
-    r[2] = k[2]*y[8]*Float32(2.09e+05)
+    # r[2] = k[2]*y[8]*Float32(2.09e+05)
     r[3] = k[3]*y[1]*y[2]
     r[4] = k[4]*y[4]
     r[5] = k[5]*y[4]
@@ -72,42 +77,108 @@ function trueODEfunc(dydt, y, k, t)
    10) CO
    11) H2
 =#
-    dydt[1] = -r[3] + r[2] # O3
+    dydt[1] = -r[3] + r[1] # O3
     dydt[2] = r[1] - r[3] - r[7] # NO
     dydt[3] = r[3] - r[1] + r[7] - r[8] # NO2
     dydt[4] = -r[4] - r[5] - r[6] # HCHO
     dydt[5] = 2*r[4] - r[7] + r[10] # HO2
     dydt[6] = - r[9] - r[10] # HO2H
     dydt[7] = -r[6] +r[7] - r[8] + 2*r[9] - r[10] # HO.
-    dydt[8] = r[1] - r[2] # O
-    dydt[9] = r[8] # HNO3
-    dydt[10] = r[4] + r[5] - r[6] # CO
-    dydt[11] = r[5] # H2
+    # dydt[8] = r[1] - r[2] # O
+    dydt[8] = r[8] # HNO3
+    dydt[9] = r[4] + r[5] - r[6] # CO
+    dydt[10] = r[5] # H2
 end
 
-# function trueODEfunc(dydt, y, k, t)
-#     # TG(1),ROH(2),DG(3),MG(4),GL(5),R'CO2R(6)
-#     r1 = k[1] * y[1] * y[2];
-#     r2 = k[2] * y[3] * y[2];
-#     r3 = k[3] * y[4] * y[2];
-#     dydt[1] = - r1;  # TG
-#     dydt[2] = - r1 - r2 - r3;  # TG
-#     dydt[3] = r1 - r2;  # DG
-#     dydt[4] = r2 - r3;  # MG
-#     dydt[5] = r3;  # GL
-#     dydt[6] = r1 + r2 + r3;  # R'CO2R
-#     dydt[7] = 0.f0;
-# end
+k1 = .35e0
+k2 = .266e2
+k3 = .123e5
+k4 = .86e-3
+k5 = .82e-3
+k6 = .15e5
+k7 = .13e-3
+k8 = .24e5
+k9 = .165e5
+k10 = .9e4
+k11 = .22e-1
+k12 = .12e5
+k13 = .188e1
+k14 = .163e5
+k15 = .48e7
+k16 = .35e-3
+k17 = .175e-1
+k18 = .1e9
+k19 = .444e12
+k20 = .124e4
+k21 = .21e1
+k22 = .578e1
+k23 = .474e-1
+k24 = .178e4
+k25 = .312e1
 
+function POLLU(dy, y, p, t)
+    r1  = k1 * y[1]
+    r2  = k2 * y[2] * y[4]
+    r3  = k3 * y[5] * y[2]
+    r4  = k4 * y[7]
+    r5  = k5 * y[7]
+    r6  = k6 * y[7] * y[6]
+    r7  = k7 * y[9]
+    r8  = k8 * y[9] * y[6]
+    r9  = k9 * y[11] * y[2]
+    r10 = k10 * y[11] * y[1]
+    r11 = k11 * y[13]
+    r12 = k12 * y[10] * y[2]
+    r13 = k13 * y[14]
+    r14 = k14 * y[1] * y[6]
+    r15 = k15 * y[3]
+    r16 = k16 * y[4]
+    r17 = k17 * y[4]
+    r18 = k18 * y[16]
+    r19 = k19 * y[16]
+    r20 = k20 * y[17] * y[6]
+    r21 = k21 * y[19]
+    r22 = k22 * y[19]
+    r23 = k23 * y[1] * y[4]
+    r24 = k24 * y[19] * y[1]
+    r25 = k25 * y[20]
 
-# trueODEfunc = @reaction_network begin
-#     # use Catalyst to replicate trueODEfunc
-#     k[1], TG + ROH --> DG + RCO2R
-#     k[2], MG + ROH --> GL + RCO2R
-#     k[3], DG + ROH --> MG + RCO2R
-#     0, T --> ∅
-#     0, ∅ --> T 
-# end k
+    dy[1]  = -r1 - r10 - r14 - r23 - r24 + r2 + r3 + r9 + r11 + r12 + r22 + r25
+    dy[2]  = -r2 - r3 - r9 - r12 + r1 + r21
+    dy[3]  = -r15 + r1 + r17 + r19 + r22
+    dy[4]  = -r2 - r16 - r17 - r23 + r15
+    dy[5]  = -r3 + r4 + r4 + r6 + r7 + r13 + r20
+    dy[6]  = -r6 - r8 - r14 - r20 + r3 + r18 + r18
+    dy[7]  = -r4 - r5 - r6 + r13
+    dy[8]  = r4 + r5 + r6 + r7
+    dy[9]  = -r7 - r8
+    dy[10] = -r12 + r7 + r9
+    dy[11] = -r9 - r10 + r8 + r11
+    dy[12] = r9
+    dy[13] = -r11 + r10
+    dy[14] = -r13 + r12
+    dy[15] = r14
+    dy[16] = -r18 - r19 + r16
+    dy[17] = -r20
+    dy[18] = r20
+    dy[19] = -r21 - r22 - r24 + r23 + r25
+    dy[20] = -r25 + r24
+end
+
+function case2(dydt, y, k, t)
+    # TG(1),ROH(2),DG(3),MG(4),GL(5),R'CO2R(6)
+    r1 = k[1] * y[1] * y[2];
+    r2 = k[2] * y[3] * y[2];
+    r3 = k[3] * y[4] * y[2];
+    dydt[1] = - r1;  # TG
+    dydt[2] = - r1 - r2 - r3;  # TG
+    dydt[3] = r1 - r2;  # DG
+    dydt[4] = r2 - r3;  # MG
+    dydt[5] = r3;  # GL
+    dydt[6] = r1 + r2 + r3;  # R'CO2R
+    dydt[7] = 0.f0;
+end
+
 
 logA = Float32[18.60f0, 19.13f0, 7.93f0];
 Ea = Float32[14.54f0, 14.42f0, 6.47f0];  # kcal/mol
@@ -128,29 +199,36 @@ end
         c[5] = 0.5*rand()*1e-3             
         c[6] = 10*rand()*1e-3   
 =#
-k = [0.5 22.179 26.937 0.015 0.022 13844.97 12652.43 15454.98 0.0003 2492.71]
-u0_list = rand(Float32, (n_exp, ns + 1));
-u0_list[:, 1] = u0_list[:, 1] .* 0.1
-u0_list[:, 2:3] = u0_list[:, 2:3] .* 0.01
-u0_list[:, 4] = u0_list[:, 4] .* 0.002
-u0_list[:, 5] = u0_list[:, 5] .* 0.00005
-u0_list[:, 6] = u0_list[:, 6] .* 0.01
-# steady state approximation for OH:
-# assume dydt[7] = 0, and solve for OH
-#= s[1] = (r[7]+r[9]*2.0)/(1.0e-20+r[6]+r[8]+r[10])
-r[6] = s[1]*r[6]
-r[8] = s[1]*r[8]
-r[10] = s[1]*r[10]
+u0_list = zeros(Float64, (n_exp, ns + 1));
+trueODEfunc = jpm
+# # Initialization
+if trueODEfunc == POLLU
+    # u0_list[:, 2]  = u0_list[:, 2] .* 0.2
+    # u0_list[:, 4]  = u0_list[:, 4] .* 0.04
+    # u0_list[:, 7]  = u0_list[:, 7] .* 0.1
+    # u0_list[:, 8]  = u0_list[:, 8] .* 0.3
+    # u0_list[:, 9]  = u0_list[:, 9] .* 0.01
+    # u0_list[:, 17] = u0_list[:, 17] .* 0.007
+    u0_list[:, 2]  .= 0.2
+    u0_list[:, 4]  .= 0.04
+    u0_list[:, 7]  .= 0.1
+    u0_list[:, 8]  .= 0.3
+    u0_list[:, 9]  .= 0.01
+    u0_list[:, 17] .= 0.007
+elseif trueODEfunc == jpm
+    u0_list[:, 1] = u0_list[:, 1] .* 0.1
+    u0_list[:, 2:3] = u0_list[:, 2:3] .* 0.01
+    u0_list[:, 4] = u0_list[:, 4] .* 0.002
+    u0_list[:, 5] = u0_list[:, 5] .* 5e-7 
+    u0_list[:, 6] = u0_list[:, 6] .* 0.01
+    u0_list[:, 7:ns] .= 0.0
+    u0_list[:, ns + 1] .= 298.0;  # T[K]
+end
 
-# O
-s[2] = r[1]/(1e-20+r[2])
-r[2] = s[2]*r[2] =#
-u0_list[:, 7] .= (k[7].*u0_list[:, 5].*u0_list[:, 2] .+ 2*k[9] .* u0_list[:, 6] ) ./ 
-                (1.0e-20 .+ k[6].*u0_list[:, 4] .+ k[8].*u0_list[:, 3] .+ k[10].*u0_list[:, 5])
-u0_list[:, 8] .= (k[1] .* u0_list[:, 3]) ./ (k[2] .* Float32(2.09e+05))
-u0_list[:, 9:ns] .= 0.0
-u0_list[:, ns + 1] .= 298.0;  # T[K]
-tspan = Float32[0.0, datasize * tstep];
+
+
+
+tspan = Float64[0.0, datasize * tstep];
 tsteps = range(tspan[1], tspan[2], length=datasize);
 
 ode_data_list = zeros(Float32, (n_exp, ns, datasize));
@@ -160,9 +238,10 @@ function max_min(ode_data)
 end
 for i in 1:n_exp
     u0 = u0_list[i, :]
-    k = Arrhenius(logA, Ea, u0[end])
+    # k = Arrhenius(logA, Ea, u0[end])
+    k = [0.04, 3e7, 1e4];
     prob_trueode = ODEProblem(trueODEfunc, u0, tspan, k)
-    ode_data = @suppress Array(solve(prob_trueode, alg, saveat=tsteps))[1:end - 1, :]
+    ode_data = Array(solve(prob_trueode, alg, saveat=tsteps, abstol=1.f-6, reltol=1e-12))[1:end - 1, :]
     ode_data += randn(size(ode_data)) .* ode_data .* noise
     ode_data_list[i, :, :] = ode_data
     push!(yscale_list, max_min(ode_data))
@@ -205,21 +284,42 @@ function crnn(du, u, p, t)
 end
 
 u0 = u0_list[1, :];
-prob = ODEProblem(crnn, u0, tspan, saveat=tsteps, atol=atol, rtol=rtol)
+prob = ODEProblem(crnn, u0, tspan, saveat=tsteps, abstol=atol, reltol=rtol)
 
 sense = BacksolveAdjoint(checkpointing=true; autojacvec=ZygoteVJP());
 function predict_neuralode(u0, p)
     global w_in, w_b, w_out = p2vec(p)
-    pred = @suppress clamp.(Array(solve(prob, alg, u0=u0, p=p, sensalg=sense)), -ub, ub)
+    pred = clamp.(Array(solve(prob, alg, u0=u0, p=p, sensealg=sense)), -ub, ub)
     return pred
 end
 predict_neuralode(u0, p)
 
 i_obs = [1, 2, 3, 4, 5, 6];
 function loss_neuralode(p, i_exp)
+
     ode_data = @view ode_data_list[i_exp, i_obs, :]
     pred = predict_neuralode(u0_list[i_exp, :], p)[i_obs, :]
+    
+    # Extract the predicted values for the slow species
+    # slow_species_indices = [1,2,3,4,5,6,7,8,9,10]
+    # pred_slow = pred[:, slow_species_indices]
+
+    # Extract the true values of the slow species from ode_data
+    # true_slow = ode_data[:, slow_species_indices]
+
+    # Reindex yscale to match the indices of the slow species
+    # yscale_slow = yscale[slow_species_indices]
+
     loss = mae(ode_data ./ yscale[i_obs], pred ./ yscale[i_obs])
+
+    # Tony Wexler's differentiable integer coaxing
+    # loss += 0.01*sum(sin.(pi*p[nr + 1:nr * (ns + 1)]).^2)
+
+    # Some silly idea to get approximate level of sparsity
+    # loss += 0.5*abs.(30 - sum( abs.(p[nr + 1:nr * (ns + 1)]) ))
+
+    # L1 norm of the weights above 2.2
+    # loss += 5e-3*sum(relu(abs.(p[nr + 1:nr * (ns + 1)]) .- 2.2))
     return loss
 end
 
@@ -271,6 +371,9 @@ if is_restart
     @load "./checkpoint/mymodel.bson" p opt l_loss_train l_loss_val iter;
     iter += 1;
 end
+
+# wipe figures from previous run
+# rm("figs/*") 
 
 i_exp = 1
 epochs = ProgressBar(iter:n_epoch);

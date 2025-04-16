@@ -87,7 +87,7 @@ p = randn(Float32, nr * (ns + 1)) .* 1.f-1;
 # p[1:nr] .+= b0;
 
 prob = ODEProblem(crnn!, u0, tspan, saveat=tsteps,
-                  atol=atol, rtol=rtol)
+                  abstol=atol, reltol=rtol)
 
 function predict_neuralode(u0, p)
     global w_in, w_b, w_out = p2vec(p);
@@ -172,14 +172,14 @@ cb = function (p, loss_train, loss_val)
 
         png(plt_loss, "figs/loss");
 
-        @save "./checkpoint/mymodel.bson" p opt list_loss_train list_loss_val iter
+        @save "./case1/checkpoint/mymodel.bson" p opt list_loss_train list_loss_val iter
     end
 
     iter += 1;
 end
 
 if is_restart
-    @load "./checkpoint/mymodel.bson" p opt list_loss_train list_loss_val iter;
+    @load "./case1/checkpoint/mymodel.bson" p opt list_loss_train list_loss_val iter;
     iter += 1;
 end
 

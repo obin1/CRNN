@@ -90,7 +90,7 @@ end
 
 u0 = u0_list[1, :]
 prob = ODEProblem(crnn!, u0, tspan, saveat=tsteps,
-                  atol=atol, rtol=rtol)
+                  abstol=atol, reltol=rtol)
 
 function pred_ode(u0, p)
     global w_kf, w_kb, w_out
@@ -176,7 +176,7 @@ cb = function (p, loss_train, loss_val)
 
         png(plt_loss, "figs/loss");
 
-        @save "./checkpoint/mymodel.bson" p opt l_loss_train l_loss_val iter
+        # @save "./checkpoint/mymodel.bson" p opt l_loss_train l_loss_val iter
     end
 
 iter += 1;
